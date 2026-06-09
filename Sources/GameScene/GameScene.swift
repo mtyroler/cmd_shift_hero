@@ -9,8 +9,9 @@ public final class GameScene: SKScene {
     private var clock: GameClock?
     private var session: GameSession?
 
-    /// Seconds a note is on screen before its hit moment.
-    public var travelTime = 1.8
+    /// Seconds a note is on screen before its hit moment. Must stay under
+    /// the live-detection lookahead (~2.2 s of the 2.5 s tap delay).
+    public var travelTime = 2.0
 
     private var spawnIndex = 0
     private var activeNotes: [Int: NoteNode] = [:]

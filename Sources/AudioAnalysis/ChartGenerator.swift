@@ -16,18 +16,28 @@ public enum Difficulty: String, CaseIterable, Codable, Sendable {
     /// Global note-density ceiling.
     var maxNotesPerSecond: Double {
         switch self {
-        case .easy: 2
-        case .normal: 4
-        case .hard: 7
+        case .easy: 1.8
+        case .normal: 3
+        case .hard: 6
+        }
+    }
+
+    /// Minimum spacing between ANY two notes, across all rows. Sub-200ms
+    /// cross-row cascades read as chords to human hands.
+    var minGlobalGap: Double {
+        switch self {
+        case .easy: 0.50
+        case .normal: 0.28
+        case .hard: 0.16
         }
     }
 
     /// Onset-detector sensitivity (lower = more notes).
     var thresholdK: Float {
         switch self {
-        case .easy: 2.4
-        case .normal: 1.8
-        case .hard: 1.4
+        case .easy: 2.6
+        case .normal: 2.1
+        case .hard: 1.5
         }
     }
 
@@ -46,6 +56,7 @@ public enum Difficulty: String, CaseIterable, Codable, Sendable {
 public final class ChartGenerator {
     private let difficulty: Difficulty
 
+    private var lastNoteTime = -Double.infinity
     private var lastTimePerRow: [KeyRow: Double] = [:]
     private var lastColumnPerRow: [KeyRow: Int] = [:]
     private var lastTimePerKey: [KeyPosition: Double] = [:]
@@ -79,6 +90,9 @@ public final class ChartGenerator {
         }
         let t = onset.time
 
+        // One-hand-at-a-time rule: global spacing across all rows.
+        guard t - lastNoteTime >= difficulty.minGlobalGap else { return nil }
+
         // Density cap (notes in the trailing second).
         recentNoteTimes.removeAll { $0 < t - 1.0 }
         guard Double(recentNoteTimes.count) < difficulty.maxNotesPerSecond else { return nil }
@@ -110,6 +124,7 @@ public final class ChartGenerator {
             key = KeyPosition(row: row, column: alt)
         }
 
+        lastNoteTime = t
         lastTimePerRow[row] = t
         lastColumnPerRow[row] = key.column
         lastTimePerKey[key] = t
