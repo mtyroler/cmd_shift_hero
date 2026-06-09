@@ -24,6 +24,14 @@ public struct ScoreState: Sendable {
         guard total > 0 else { return 0 }
         return Double(perfects * 2 + goods) / Double(total * 2)
     }
+
+    public var grade: String {
+        if accuracy >= 0.95 && misses == 0 { return "S" }
+        if accuracy >= 0.90 { return "A" }
+        if accuracy >= 0.80 { return "B" }
+        if accuracy >= 0.65 { return "C" }
+        return "D"
+    }
 }
 
 /// Judges key presses against the chart and tracks the score.
@@ -31,7 +39,14 @@ public struct ScoreState: Sendable {
 public final class GameSession {
     public private(set) var chart: Chart
     public private(set) var state = ScoreState()
-    public var starPowerActive = false
+
+    /// Star power: meter fills on hits; Shift spends a full meter for 8 s of
+    /// ×2 scoring; Cmd+Shift spends it to perfect-clear the visible notes.
+    public private(set) var starPowerActive = false
+    public private(set) var starMeter = 0.0
+    private var starPowerEndTime: Double?
+    public static let starPowerDuration = 8.0
+    public static let finisherWindow = 1.5
 
     /// Parallel to chart.notes: true once judged (hit or missed).
     private var judged: [Bool]
@@ -83,8 +98,45 @@ public final class GameSession {
         return (judgment, index)
     }
 
+    /// Shift pressed: activate star power if the meter is full.
+    @discardableResult
+    public func tryActivateStarPower(at t: Double) -> Bool {
+        guard !starPowerActive, starMeter >= 1 else { return false }
+        starMeter = 0
+        starPowerActive = true
+        starPowerEndTime = t + Self.starPowerDuration
+        return true
+    }
+
+    /// Cmd+Shift pressed: spend a full meter to perfect-hit every pending
+    /// note from now through the finisher window. Returns the cleared
+    /// indices, or nil if the meter wasn't full.
+    public func tryFinisher(at t: Double) -> [Int]? {
+        guard starMeter >= 1 else { return nil }
+
+        var cleared: [Int] = []
+        var i = lowWatermark
+        while i < chart.notes.count {
+            let note = chart.notes[i]
+            if note.time > t + Self.finisherWindow { break }
+            if !judged[i], note.time >= t - HitJudgment.goodWindow {
+                judged[i] = true
+                applyHit(.perfect)
+                cleared.append(i)
+            }
+            i += 1
+        }
+        starMeter = 0 // after the hits — finisher hits must not refill the meter
+        advanceWatermark()
+        return cleared
+    }
+
     /// Advance the song clock; returns indices of notes that just became misses.
     public func advance(to t: Double) -> [Int] {
+        if let end = starPowerEndTime, t >= end {
+            starPowerActive = false
+            starPowerEndTime = nil
+        }
         var missed: [Int] = []
         var i = lowWatermark
         while i < chart.notes.count {
@@ -109,6 +161,9 @@ public final class GameSession {
         state.combo += 1
         state.bestCombo = max(state.bestCombo, state.combo)
         if judgment == .perfect { state.perfects += 1 } else { state.goods += 1 }
+        if !starPowerActive {
+            starMeter = min(1, starMeter + (judgment == .perfect ? 0.04 : 0.02))
+        }
     }
 
     private func advanceWatermark() {

@@ -29,6 +29,14 @@ struct RootView: View {
                 MenuView()
             case .game:
                 GameContainerView()
+            case .results:
+                if let score = appState.finalScore {
+                    ResultsView(score: score)
+                } else {
+                    MenuView()
+                }
+            case .calibration:
+                CalibrationView()
             }
         }
         .preferredColorScheme(.dark)

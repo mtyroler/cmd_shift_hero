@@ -1,3 +1,4 @@
+import AudioAnalysis
 import SwiftUI
 
 struct MenuView: View {
@@ -32,13 +33,31 @@ struct MenuView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                VStack(spacing: 14) {
+                VStack(spacing: 18) {
+                    HStack(spacing: 10) {
+                        ForEach(Difficulty.allCases, id: \.self) { level in
+                            DifficultyChip(level: level, selected: appState.difficulty == level) {
+                                appState.difficulty = level
+                            }
+                        }
+                    }
+
                     NeonButton(title: appState.isAnalyzing ? "ANALYZING…" : "PLAY DEMO TRACK") {
                         appState.startDemo()
                     }
-                    Text("Apple Music library — coming in M4")
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.tertiary)
+
+                    HStack(spacing: 14) {
+                        NeonButton(title: "CALIBRATE") { appState.screen = .calibration }
+                    }
+
+                    VStack(spacing: 4) {
+                        Text("SHIFT star power  ·  ⌘⇧ finisher  ·  ESC pause")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                        Text("Apple Music library — coming in M4")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.tertiary)
+                    }
                 }
 
                 if let error = appState.lastError {
@@ -48,6 +67,28 @@ struct MenuView: View {
                 }
             }
         }
+    }
+}
+
+struct DifficultyChip: View {
+    let level: Difficulty
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(level.rawValue.uppercased())
+                .font(.caption.monospaced().weight(.bold))
+                .kerning(1.5)
+                .foregroundStyle(selected ? .black : Color(red: 0.65, green: 0.45, blue: 1))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 7)
+                .background(
+                    Capsule().fill(selected ? Color(red: 0.65, green: 0.45, blue: 1) : Color(red: 0.07, green: 0.08, blue: 0.18))
+                        .overlay(Capsule().stroke(Color(red: 0.65, green: 0.45, blue: 1).opacity(0.6), lineWidth: 1.5))
+                )
+        }
+        .buttonStyle(.plain)
     }
 }
 

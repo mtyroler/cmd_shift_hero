@@ -18,8 +18,14 @@ public final class GameScene: SKScene {
 
     private var scoreLabel: SKLabelNode!
     private var comboLabel: SKLabelNode!
+    private var starBarBack: SKShapeNode!
+    private var starBarFill: SKShapeNode!
+    private var starOverlay: SKShapeNode!
     private var lastDisplayedScore = -1
     private var lastDisplayedCombo = -1
+    private var lastStarMeter = -1.0
+    private var lastStarActive = false
+    private let starBarWidth: CGFloat = 220
 
     public func attach(clock: GameClock, session: GameSession) {
         self.clock = clock
@@ -96,6 +102,9 @@ public final class GameScene: SKScene {
         guard let clock, let session else { return }
         if let (judgment, index) = session.registerPress(key: position, at: clock.audibleSongTime) {
             if let node = activeNotes.removeValue(forKey: index) {
+                if judgment == .perfect {
+                    sparkBurst(at: node.position, color: Theme.rowColor(position.row), count: 7)
+                }
                 node.explodeHit()
             }
             keyboard.flashHit(at: position, color: judgment == .perfect ? Theme.hitFlash : Theme.rowColor(position.row))
@@ -106,6 +115,66 @@ public final class GameScene: SKScene {
     public func physicalKeyUp(code: UInt16) {
         guard let position = KeyMap.positionForKeyCode[code] else { return }
         keyboard.setPressed(false, at: position)
+    }
+
+    /// Shift pressed (no Cmd): star power if the meter is full.
+    public func shiftPressed() {
+        guard let clock, let session else { return }
+        if session.tryActivateStarPower(at: clock.audibleSongTime) {
+            announce("STAR POWER", color: Theme.hitFlash)
+        }
+    }
+
+    /// Cmd+Shift: finisher — perfect-clears the visible notes.
+    public func finisherPressed() {
+        guard let clock, let session else { return }
+        guard let cleared = session.tryFinisher(at: clock.audibleSongTime) else { return }
+        announce("⌘⇧ FINISHER", color: .white)
+        for index in cleared {
+            if let node = activeNotes.removeValue(forKey: index) {
+                sparkBurst(at: node.position, color: Theme.hitFlash, count: 10)
+                node.explodeHit()
+            }
+        }
+    }
+
+    private func announce(_ text: String, color: NSColor) {
+        let label = SKLabelNode(text: text)
+        label.fontName = "Menlo-Bold"
+        label.fontSize = 46
+        label.fontColor = color
+        label.position = CGPoint(x: size.width / 2, y: size.height * 0.55)
+        label.zPosition = 60
+        label.setScale(0.4)
+        addChild(label)
+        label.run(.sequence([
+            .group([.scale(to: 1.0, duration: 0.18), .fadeIn(withDuration: 0.1)]),
+            .wait(forDuration: 0.7),
+            .fadeOut(withDuration: 0.3),
+            .removeFromParent(),
+        ]))
+    }
+
+    /// Cheap neon spark burst (shape nodes, no textures).
+    private func sparkBurst(at point: CGPoint, color: NSColor, count: Int) {
+        for _ in 0..<count {
+            let spark = SKShapeNode(circleOfRadius: CGFloat.random(in: 1.5...3))
+            spark.fillColor = color
+            spark.strokeColor = .clear
+            spark.glowWidth = 2
+            spark.position = point
+            spark.zPosition = 30
+            addChild(spark)
+            let angle = CGFloat.random(in: 0..<(2 * .pi))
+            let distance = CGFloat.random(in: 30...80)
+            spark.run(.sequence([
+                .group([
+                    .moveBy(x: cos(angle) * distance, y: sin(angle) * distance, duration: 0.35),
+                    .fadeOut(withDuration: 0.35),
+                ]),
+                .removeFromParent(),
+            ]))
+        }
     }
 
     // MARK: - HUD
@@ -127,12 +196,36 @@ public final class GameScene: SKScene {
         comboLabel.zPosition = 50
         addChild(comboLabel)
 
+        starBarBack = SKShapeNode(rect: CGRect(x: 0, y: 0, width: starBarWidth, height: 10), cornerRadius: 5)
+        starBarBack.fillColor = Theme.keyFill
+        starBarBack.strokeColor = Theme.keyStroke.withAlphaComponent(0.4)
+        starBarBack.zPosition = 50
+        addChild(starBarBack)
+
+        starBarFill = SKShapeNode(rect: CGRect(x: 0, y: 0, width: starBarWidth, height: 10), cornerRadius: 5)
+        starBarFill.fillColor = Theme.hitFlash
+        starBarFill.strokeColor = .clear
+        starBarFill.glowWidth = 3
+        starBarFill.xScale = 0
+        starBarFill.zPosition = 51
+        addChild(starBarFill)
+
+        // Full-screen wash shown while star power is active.
+        starOverlay = SKShapeNode(rect: CGRect(origin: .zero, size: CGSize(width: 4000, height: 3000)))
+        starOverlay.fillColor = Theme.hitFlash
+        starOverlay.strokeColor = .clear
+        starOverlay.alpha = 0
+        starOverlay.zPosition = -5
+        addChild(starOverlay)
+
         layoutHUD()
     }
 
     private func layoutHUD() {
         scoreLabel?.position = CGPoint(x: size.width - 28, y: size.height - 52)
         comboLabel?.position = CGPoint(x: 28, y: size.height - 52)
+        starBarBack?.position = CGPoint(x: (size.width - starBarWidth) / 2, y: size.height - 46)
+        starBarFill?.position = starBarBack.position
     }
 
     private func updateHUD() {
@@ -147,6 +240,31 @@ public final class GameScene: SKScene {
             lastDisplayedCombo = session.state.combo
             let combo = session.state.combo
             comboLabel.text = combo >= 2 ? "\(combo)x COMBO  ·  ×\(session.state.multiplier)" : ""
+        }
+        if session.starMeter != lastStarMeter {
+            lastStarMeter = session.starMeter
+            starBarFill.xScale = CGFloat(session.starMeter)
+            if session.starMeter >= 1, starBarFill.action(forKey: "pulse") == nil {
+                starBarFill.run(.repeatForever(.sequence([
+                    .fadeAlpha(to: 0.5, duration: 0.3),
+                    .fadeAlpha(to: 1.0, duration: 0.3),
+                ])), withKey: "pulse")
+            } else if session.starMeter < 1 {
+                starBarFill.removeAction(forKey: "pulse")
+                starBarFill.alpha = 1
+            }
+        }
+        if session.starPowerActive != lastStarActive {
+            lastStarActive = session.starPowerActive
+            starOverlay.removeAllActions()
+            if session.starPowerActive {
+                starOverlay.run(.repeatForever(.sequence([
+                    .fadeAlpha(to: 0.10, duration: 0.5),
+                    .fadeAlpha(to: 0.04, duration: 0.5),
+                ])))
+            } else {
+                starOverlay.run(.fadeAlpha(to: 0, duration: 0.4))
+            }
         }
     }
 
