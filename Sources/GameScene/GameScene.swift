@@ -36,15 +36,19 @@ public final class GameScene: SKScene {
 
     public override func didMove(to view: SKView) {
         backgroundColor = Theme.background
-        scaleMode = .resizeFill
         buildBackdrop()
         buildKeyboard()
         buildHUD()
     }
 
     public override func didChangeSize(_ oldSize: CGSize) {
-        guard keyboard != nil else { return }
-        layoutKeyboard()
+        // Rebuild the size-dependent layers (live note nodes reposition
+        // themselves from the clock every frame regardless).
+        guard keyboard != nil, oldSize != size else { return }
+        backdrop?.removeFromParent()
+        buildBackdrop()
+        keyboard.removeFromParent()
+        buildKeyboard()
         layoutHUD()
     }
 
@@ -290,8 +294,11 @@ public final class GameScene: SKScene {
 
     // MARK: - Layout
 
+    private var backdrop: SKNode?
+
     private func buildBackdrop() {
         let grid = SKNode()
+        backdrop = grid
         grid.zPosition = -10
         let horizon = size.height * 0.78
         for i in 0...14 {

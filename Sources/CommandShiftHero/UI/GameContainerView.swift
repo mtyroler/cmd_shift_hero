@@ -5,7 +5,14 @@ import SwiftUI
 
 struct GameContainerView: View {
     @Environment(AppState.self) private var appState
-    @State private var scene = GameScene()
+    // Size and scale mode must be set BEFORE SpriteView presents the scene —
+    // setting .resizeFill in didMove is too late and leaves a 0×0 scene
+    // blown up across the window.
+    @State private var scene: GameScene = {
+        let scene = GameScene(size: CGSize(width: 1280, height: 800))
+        scene.scaleMode = .resizeFill
+        return scene
+    }()
     @State private var keyMonitor: Any?
     @State private var lastFlags: NSEvent.ModifierFlags = []
     @State private var buffering = false
