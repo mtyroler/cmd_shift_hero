@@ -47,17 +47,13 @@ struct MenuView: View {
                     }
 
                     HStack(spacing: 14) {
+                        NeonButton(title: "APPLE MUSIC LIBRARY") { appState.openLibrary() }
                         NeonButton(title: "CALIBRATE") { appState.screen = .calibration }
                     }
 
-                    VStack(spacing: 4) {
-                        Text("SHIFT star power  ·  ⌘⇧ finisher  ·  ESC pause")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                        Text("Apple Music library — coming in M4")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.tertiary)
-                    }
+                    Text("SHIFT star power  ·  ⌘⇧ finisher  ·  ESC pause")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
                 }
 
                 if let error = appState.lastError {

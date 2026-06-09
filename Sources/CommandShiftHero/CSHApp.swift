@@ -37,6 +37,8 @@ struct RootView: View {
                 }
             case .calibration:
                 CalibrationView()
+            case .library:
+                LibraryBrowserView()
             }
         }
         .preferredColorScheme(.dark)
