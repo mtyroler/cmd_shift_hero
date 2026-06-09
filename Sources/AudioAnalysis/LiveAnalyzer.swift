@@ -109,8 +109,10 @@ public final class LiveAnalyzer: @unchecked Sendable {
             }
             framesScanned += frames
 
-            guard audioStartTime != nil else { continue }
-
+            // CRITICAL: feed the detector every frame from capture start —
+            // its onset times must share the capture timeline the game
+            // clock runs on. Skipping the lead-in silence would shift every
+            // note early by the Music.app startup latency.
             let onsets = mono.withUnsafeBufferPointer { buf in
                 stream.process(UnsafeBufferPointer(rebasing: buf[0..<frames]))
             }
