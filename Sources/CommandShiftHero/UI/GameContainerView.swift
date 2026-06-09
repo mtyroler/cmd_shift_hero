@@ -1,3 +1,4 @@
+import GameCore
 import GameScene
 import SpriteKit
 import SwiftUI
@@ -6,17 +7,24 @@ struct GameContainerView: View {
     @Environment(AppState.self) private var appState
     @State private var scene = GameScene()
     @State private var keyMonitor: Any?
+    private let drainCheck = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         SpriteView(scene: scene, preferredFramesPerSecond: 120)
             .ignoresSafeArea()
             .onAppear {
-                if let clock = appState.player {
-                    scene.attach(clock: clock)
+                if let clock = appState.player, let session = appState.session {
+                    scene.attach(clock: clock, session: session)
                 }
                 installKeyMonitor()
             }
             .onDisappear(perform: removeKeyMonitor)
+            .onReceive(drainCheck) { _ in
+                // Song over once the feeder finished and the buffer drained.
+                if appState.player?.isDrained == true {
+                    appState.endGame()
+                }
+            }
     }
 
     private func installKeyMonitor() {
@@ -32,7 +40,7 @@ struct GameContainerView: View {
                 scene.physicalKeyUp(code: event.keyCode)
             }
             // Swallow letter keys so the system beep never fires during play.
-            return GameCoreKeyCodes.isLetter(event.keyCode) || event.keyCode == 53 ? nil : event
+            return KeyMap.positionForKeyCode[event.keyCode] != nil ? nil : event
         }
     }
 
@@ -41,13 +49,5 @@ struct GameContainerView: View {
             NSEvent.removeMonitor(keyMonitor)
             self.keyMonitor = nil
         }
-    }
-}
-
-import GameCore
-
-enum GameCoreKeyCodes {
-    static func isLetter(_ code: UInt16) -> Bool {
-        KeyMap.positionForKeyCode[code] != nil
     }
 }

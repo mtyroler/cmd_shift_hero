@@ -145,7 +145,9 @@ public final class DelayedPlayer: GameClock, @unchecked Sendable {
 
         let thread = Thread {
             guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 8192) else { return }
-            while !Thread.current.isCancelled {
+            // read(into:) can throw a spurious error at EOF on compressed
+            // files, so the loop is bounded by framePosition.
+            while !Thread.current.isCancelled, file.framePosition < file.length {
                 do {
                     try file.read(into: buffer)
                 } catch {

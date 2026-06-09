@@ -37,9 +37,9 @@ public final class KeyboardNode: SKNode {
         return CGPoint(x: x, y: y)
     }
 
-    /// Scene-local x of a key's center, for lane alignment.
-    public func laneX(for position: KeyPosition) -> CGFloat {
-        layoutPoint(for: position).x + self.position.x
+    /// Keyboard-local center of a key, for lane alignment and hit targets.
+    public func localCenter(for position: KeyPosition) -> CGPoint {
+        layoutPoint(for: position)
     }
 
     public func setPressed(_ pressed: Bool, at position: KeyPosition) {

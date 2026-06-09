@@ -33,7 +33,7 @@ struct MenuView: View {
                 }
 
                 VStack(spacing: 14) {
-                    NeonButton(title: "PLAY DEMO TRACK") {
+                    NeonButton(title: appState.isAnalyzing ? "ANALYZING…" : "PLAY DEMO TRACK") {
                         appState.startDemo()
                     }
                     Text("Apple Music library — coming in M4")
