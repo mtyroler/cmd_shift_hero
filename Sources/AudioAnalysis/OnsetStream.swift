@@ -2,7 +2,7 @@ import Accelerate
 import Foundation
 
 /// A detected musical onset in one frequency band.
-public struct DetectedOnset: Sendable {
+public struct DetectedOnset: Sendable, Codable {
     public let time: Double      // seconds since stream start
     public let band: Int         // 0 = low (20–250 Hz), 1 = mid (250–2k), 2 = high (2k–8k)
     public let energy: Float     // flux value, for prioritizing when notes collide

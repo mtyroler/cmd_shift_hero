@@ -1,6 +1,7 @@
 import AudioToolbox
 import CoreAudio
 import Foundation
+import GameCore
 import os
 
 public struct TapStreamFormat: Sendable {

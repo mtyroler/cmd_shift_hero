@@ -64,6 +64,17 @@ public final class GameSession {
         judged.append(false)
     }
 
+    /// For cached replays (M6): swap in the full chart once the audio-start
+    /// offset is known. Only valid before any note has been judged.
+    public func loadChart(_ newChart: Chart, timeOffset: Double) {
+        guard chart.notes.isEmpty || state.totalNotes == 0 else { return }
+        chart = Chart(notes: newChart.notes.map {
+            Note(time: $0.time + timeOffset, key: $0.key)
+        })
+        judged = Array(repeating: false, count: chart.notes.count)
+        lowWatermark = 0
+    }
+
     public var noteCount: Int { chart.notes.count }
     public func isJudged(_ index: Int) -> Bool { judged[index] }
     public func note(at index: Int) -> Note { chart.notes[index] }

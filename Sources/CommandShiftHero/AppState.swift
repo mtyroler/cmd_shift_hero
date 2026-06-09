@@ -41,6 +41,9 @@ final class AppState {
     private var tap: ProcessTapController?
     private(set) var currentTrack: LibraryTrack?
     private(set) var analysisRing: AudioRingBuffer?
+    private var liveAnalyzer: LiveAnalyzer?
+    private var cachedAnalysis: CachedAnalysis?
+    private var audioStartOffset: Double?
     static let tapDelaySeconds = 2.5
 
     /// Kept for instant restart without re-analysis.
@@ -149,20 +152,52 @@ final class AppState {
                     channels: format.channels
                 )
 
+                // Cached analysis from a previous play → full chart from
+                // beat zero; otherwise the chart builds live as we listen.
+                let cached = ChartCache.load(trackID: track.persistentIDHex)
+                let session = GameSession(chart: Chart(notes: []))
+                let difficulty = self.difficulty
+
+                let analyzer = LiveAnalyzer(
+                    ring: analysisRing,
+                    sampleRate: format.sampleRate,
+                    channels: format.channels,
+                    difficulty: difficulty,
+                    emitNotes: cached == nil,
+                    onAudioStart: { [weak self] t0 in
+                        guard let self else { return }
+                        self.audioStartOffset = t0
+                        if let cached = self.cachedAnalysis {
+                            // Shift cache-relative times onto this play's
+                            // capture timeline.
+                            let chart = ChartCache.chart(from: cached, difficulty: difficulty)
+                            self.session?.loadChart(chart, timeOffset: t0)
+                            Self.log.info("cached chart loaded: \(chart.notes.count) notes, offset \(t0)s")
+                        }
+                    },
+                    onNote: { [weak self] note in
+                        self?.session?.appendNote(note)
+                    }
+                )
+
                 try tap.startCapture(into: [player.ring, analysisRing])
                 try musicRemote.play(persistentIDHex: track.persistentIDHex)
                 try player.start()
+                analyzer.start()
 
                 self.tap = tap
                 self.player = player
                 self.analysisRing = analysisRing
                 self.currentTrack = track
-                self.session = GameSession(chart: Chart(notes: [])) // M6: filled live
+                self.session = session
+                self.cachedAnalysis = cached
+                self.audioStartOffset = nil
+                self.liveAnalyzer = analyzer
                 self.mode = .musicTap
                 self.isPaused = false
                 self.finalScore = nil
                 self.screen = .game
-                Self.log.info("tap game started: \(track.title) @ \(format.sampleRate)Hz")
+                Self.log.info("tap game started: \(track.title) @ \(format.sampleRate)Hz, cache=\(cached != nil)")
             } catch {
                 Self.log.error("startMusicTrack failed: \(error.localizedDescription)")
                 self.teardownPlayback()
@@ -200,6 +235,24 @@ final class AppState {
     }
 
     private func teardownPlayback() {
+        // Persist this play's analysis before tearing anything down.
+        if mode == .musicTap, let analyzer = liveAnalyzer, let track = currentTrack {
+            analyzer.stop()
+            let onsets = analyzer.snapshotNormalizedOnsets()
+            if onsets.count > 10 {
+                let merged = ChartCache.merge(
+                    existing: cachedAnalysis,
+                    newOnsets: onsets,
+                    trackID: track.persistentIDHex,
+                    duration: track.duration
+                )
+                ChartCache.save(merged)
+            }
+        }
+        liveAnalyzer?.stop()
+        liveAnalyzer = nil
+        cachedAnalysis = nil
+        audioStartOffset = nil
         player?.stop()
         player = nil
         tap?.stop()
