@@ -43,8 +43,9 @@ final class Calibrator {
         let clickLength = Int(0.025 * sampleRate)
         let rendered = counter
 
-        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate,
-                                   channels: 1, interleaved: true)!
+        // Standard (deinterleaved) format — the mixer rejects interleaved
+        // connection formats with kAudioUnitErr -10868.
+        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
         sourceNode = AVAudioSourceNode(format: format) { _, _, frameCount, audioBufferList -> OSStatus in
             let abl = UnsafeMutableAudioBufferListPointer(audioBufferList)
             guard let out = abl[0].mData?.assumingMemoryBound(to: Float.self) else { return noErr }

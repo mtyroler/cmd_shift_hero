@@ -81,7 +81,15 @@ public final class DelayedPlayer: GameClock, @unchecked Sendable {
         }
 
         engine.attach(sourceNode)
-        engine.connect(sourceNode, to: engine.mainMixerNode, format: format)
+        // The render block produces interleaved float32, but the mixer only
+        // accepts deinterleaved (standard) connection formats — the source
+        // node performs the interleaving conversion (kAudioUnitErr
+        // -10868 if you pass the interleaved format here).
+        let connectionFormat = AVAudioFormat(
+            standardFormatWithSampleRate: sampleRate,
+            channels: AVAudioChannelCount(channels)
+        )!
+        engine.connect(sourceNode, to: engine.mainMixerNode, format: connectionFormat)
     }
 
     // MARK: - GameClock
