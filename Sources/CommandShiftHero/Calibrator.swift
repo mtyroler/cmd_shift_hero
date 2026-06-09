@@ -1,13 +1,12 @@
-import AVFAudio
 import Foundation
 import Observation
-import Synchronization
+import TapCapture
 
-/// Latency calibration: plays a metronome click every 0.5 s through the same
-/// AVAudioEngine output path the game uses; the user taps Space on the click.
-/// The median tap offset (corrected for output latency) becomes the game's
-/// calibration offset: positive median = user/system chain is late, so we
-/// store the negative to shift judging earlier.
+/// Latency calibration: MetronomeEngine (TapCapture — its render block must
+/// stay off the MainActor) plays a click every 0.5 s through the same output
+/// path the game uses; the user taps Space on the click. The median tap
+/// offset becomes the game's calibration offset: positive median = the
+/// user/system chain runs late, so we store the negative to shift judging.
 @Observable
 final class Calibrator {
     static let interval = 0.5
@@ -28,63 +27,21 @@ final class Calibrator {
         medianOffset.map { -$0 }
     }
 
-    /// Mutex is ~Copyable; the render block captures this wrapper instead.
-    private final class RenderCounter: @unchecked Sendable {
-        let samples = Mutex(0)
-    }
-
-    private let engine = AVAudioEngine()
-    private var sourceNode: AVAudioSourceNode!
-    private let counter = RenderCounter()
-
-    init() {
-        let sampleRate = 44100.0
-        let intervalSamples = Int(Self.interval * sampleRate)
-        let clickLength = Int(0.025 * sampleRate)
-        let rendered = counter
-
-        // Standard (deinterleaved) format — the mixer rejects interleaved
-        // connection formats with kAudioUnitErr -10868.
-        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-        sourceNode = AVAudioSourceNode(format: format) { _, _, frameCount, audioBufferList -> OSStatus in
-            let abl = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            guard let out = abl[0].mData?.assumingMemoryBound(to: Float.self) else { return noErr }
-            let frames = Int(frameCount)
-            let start = rendered.samples.withLock { current in
-                let s = current
-                current += frames
-                return s
-            }
-            for n in 0..<frames {
-                let phase = (start + n) % intervalSamples
-                if phase < clickLength {
-                    let x = Double(phase) / sampleRate
-                    out[n] = Float(sin(2 * .pi * 1000 * x) * exp(-x * 180)) * 0.6
-                } else {
-                    out[n] = 0
-                }
-            }
-            return noErr
-        }
-        engine.attach(sourceNode)
-        engine.connect(sourceNode, to: engine.mainMixerNode, format: format)
-    }
+    private let metronome = MetronomeEngine(sampleRate: 44100, interval: interval)
 
     func start() throws {
         taps.removeAll()
-        try engine.start()
+        try metronome.start()
     }
 
     func stop() {
-        engine.stop()
+        metronome.stop()
     }
 
     /// Space pressed: record offset to the nearest click as the user heard it.
     func registerTap() {
         guard !isDone else { return }
-        let rendered = counter.samples.withLock { $0 }
-        let renderTime = Double(rendered) / 44100.0
-        let heardTime = renderTime - engine.outputNode.presentationLatency
+        let heardTime = metronome.renderedTime - metronome.outputLatency
         var phase = heardTime.truncatingRemainder(dividingBy: Self.interval)
         if phase > Self.interval / 2 { phase -= Self.interval }
         taps.append(phase)
