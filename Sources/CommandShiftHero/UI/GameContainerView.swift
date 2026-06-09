@@ -8,12 +8,26 @@ struct GameContainerView: View {
     @State private var scene = GameScene()
     @State private var keyMonitor: Any?
     @State private var lastFlags: NSEvent.ModifierFlags = []
-    private let drainCheck = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @State private var buffering = false
+    private let drainCheck = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ZStack {
             SpriteView(scene: scene, preferredFramesPerSecond: 120)
                 .ignoresSafeArea()
+
+            if buffering {
+                VStack(spacing: 10) {
+                    Text("LISTEN…")
+                        .font(.system(size: 40, weight: .black, design: .monospaced))
+                        .kerning(6)
+                        .foregroundStyle(Color(red: 1, green: 0.35, blue: 0.85))
+                    Text("buffering the song for lookahead")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 200)
+            }
 
             if appState.isPaused {
                 PauseOverlay()
@@ -30,10 +44,11 @@ struct GameContainerView: View {
             scene.isPaused = paused
         }
         .onReceive(drainCheck) { _ in
-            // Song over once the feeder finished and the buffer drained.
-            if !appState.isPaused, appState.player?.isDrained == true {
-                appState.finishGame()
-            }
+            appState.checkSongEnd()
+            // In tap mode the first ~2.5s are silent while lookahead fills.
+            buffering = appState.mode == .musicTap
+                && (appState.player?.audibleSongTime ?? 1) < 0.05
+                && !appState.isPaused
         }
     }
 

@@ -36,6 +36,12 @@ public final class MusicRemote {
         """)
     }
 
+    /// Launches Music.app without bringing it to the front; returns once it
+    /// is running (so its PID can be resolved for the tap).
+    public func launch() throws {
+        try run("tell application \"Music\" to launch")
+    }
+
     public func pause() throws {
         try run("tell application \"Music\" to pause")
     }

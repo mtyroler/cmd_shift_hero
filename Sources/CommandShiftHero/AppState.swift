@@ -27,9 +27,21 @@ final class AppState {
     var lastError: String?
     var difficulty: Difficulty = .normal
 
+    enum PlaybackMode {
+        case localFile
+        case musicTap
+    }
+
+    private(set) var mode: PlaybackMode = .localFile
     private(set) var player: DelayedPlayer?
     private(set) var session: GameSession?
     private(set) var finalScore: ScoreState?
+
+    /// Music-tap mode (M5+).
+    private var tap: ProcessTapController?
+    private(set) var currentTrack: LibraryTrack?
+    private(set) var analysisRing: AudioRingBuffer?
+    static let tapDelaySeconds = 2.5
 
     /// Kept for instant restart without re-analysis.
     private var currentChart: Chart?
@@ -70,13 +82,20 @@ final class AppState {
     }
 
     func restartGame() {
-        guard let chart = currentChart, let url = currentURL else { return }
-        player?.stop()
-        do {
-            try startPlayback(chart: chart, url: url)
-        } catch {
-            lastError = error.localizedDescription
-            screen = .menu
+        switch mode {
+        case .musicTap:
+            guard let track = currentTrack else { return }
+            teardownPlayback()
+            startMusicTrack(track)
+        case .localFile:
+            guard let chart = currentChart, let url = currentURL else { return }
+            player?.stop()
+            do {
+                try startPlayback(chart: chart, url: url)
+            } catch {
+                lastError = error.localizedDescription
+                screen = .menu
+            }
         }
     }
 
@@ -93,9 +112,104 @@ final class AppState {
 
         session = GameSession(chart: chart)
         self.player = player
+        mode = .localFile
         isPaused = false
         finalScore = nil
         screen = .game
+    }
+
+    // MARK: - Music-tap flow (M5)
+
+    /// The headline path: tap Music.app, mute it, analyze the real song,
+    /// replay it 2.5 s delayed for note lookahead.
+    func startMusicTrack(_ track: LibraryTrack) {
+        stopPreview()
+        lastError = nil
+        libraryError = nil
+        Task {
+            do {
+                try musicRemote.launch()
+                let pid = try await musicPID()
+
+                let tap = ProcessTapController()
+                let format = try tap.activate(pid: pid) // first run: audio-capture TCC prompt
+
+                let player = DelayedPlayer(
+                    sampleRate: format.sampleRate,
+                    channels: format.channels,
+                    delaySeconds: Self.tapDelaySeconds,
+                    bufferSeconds: 30
+                )
+                player.calibrationOffset = calibrationOffset
+
+                // Second ring so live analysis (M6) reads the same capture
+                // independently of the playback cursor.
+                let analysisRing = AudioRingBuffer(
+                    capacityFrames: Int(30 * format.sampleRate),
+                    channels: format.channels
+                )
+
+                try tap.startCapture(into: [player.ring, analysisRing])
+                try musicRemote.play(persistentIDHex: track.persistentIDHex)
+                try player.start()
+
+                self.tap = tap
+                self.player = player
+                self.analysisRing = analysisRing
+                self.currentTrack = track
+                self.session = GameSession(chart: Chart(notes: [])) // M6: filled live
+                self.mode = .musicTap
+                self.isPaused = false
+                self.finalScore = nil
+                self.screen = .game
+                Self.log.info("tap game started: \(track.title) @ \(format.sampleRate)Hz")
+            } catch {
+                Self.log.error("startMusicTrack failed: \(error.localizedDescription)")
+                self.teardownPlayback()
+                self.libraryError = error.localizedDescription
+                self.screen = .library
+            }
+        }
+    }
+
+    private func musicPID() async throws -> pid_t {
+        for _ in 0..<20 {
+            if let app = NSRunningApplication
+                .runningApplications(withBundleIdentifier: "com.apple.Music").first {
+                return app.processIdentifier
+            }
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        throw TapError.processNotRunning("com.apple.Music")
+    }
+
+    /// Song-end check, polled by the game container.
+    func checkSongEnd() {
+        guard !isPaused, screen == .game else { return }
+        switch mode {
+        case .localFile:
+            if player?.isDrained == true { finishGame() }
+        case .musicTap:
+            // We never read Music's player position; the audible clock plus
+            // the library-reported duration decides when the song is over.
+            if let track = currentTrack, let player,
+               player.audibleSongTime > track.duration + 0.5 {
+                finishGame()
+            }
+        }
+    }
+
+    private func teardownPlayback() {
+        player?.stop()
+        player = nil
+        tap?.stop()
+        tap = nil
+        analysisRing = nil
+        if mode == .musicTap {
+            try? musicRemote.stop()
+        }
+        session = nil
+        isPaused = false
     }
 
     // MARK: - Transport
@@ -103,12 +217,18 @@ final class AppState {
     func pauseGame() {
         guard !isPaused else { return }
         player?.pause()
+        if mode == .musicTap {
+            try? musicRemote.pause()
+        }
         isPaused = true
     }
 
     func resumeGame() {
         guard isPaused else { return }
         do {
+            if mode == .musicTap {
+                try musicRemote.resume()
+            }
             try player?.resume()
             isPaused = false
         } catch {
@@ -116,13 +236,10 @@ final class AppState {
         }
     }
 
-    /// Song drained: show results.
+    /// Song over: show results.
     func finishGame() {
         finalScore = session?.state
-        player?.stop()
-        player = nil
-        session = nil
-        isPaused = false
+        teardownPlayback()
         screen = .results
     }
 
@@ -180,10 +297,7 @@ final class AppState {
 
     /// Quit mid-song: straight back to the menu.
     func endGame() {
-        player?.stop()
-        player = nil
-        session = nil
-        isPaused = false
+        teardownPlayback()
         screen = .menu
     }
 }

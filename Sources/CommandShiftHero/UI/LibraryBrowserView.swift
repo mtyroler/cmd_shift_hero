@@ -55,16 +55,10 @@ struct LibraryBrowserView: View {
                     }
                 }
 
-                if let testing = appState.previewTrack {
-                    HStack(spacing: 14) {
-                        Text("PLAYING IN MUSIC.APP: \(testing.title)")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(Color(red: 0.1, green: 0.95, blue: 1))
-                            .lineLimit(1)
-                        NeonButton(title: "STOP") { appState.stopPreview() }
-                    }
-                    .padding(12)
-                }
+                Text("click a song to play it — Music.app stays silent; you hear the game's delayed copy")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.tertiary)
+                    .padding(.bottom, 10)
             }
         }
     }
@@ -78,7 +72,7 @@ private struct TrackRow: View {
 
     var body: some View {
         Button {
-            appState.previewInMusic(track)
+            appState.startMusicTrack(track)
         } label: {
             HStack(spacing: 12) {
                 Group {
