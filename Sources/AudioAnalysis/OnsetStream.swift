@@ -35,7 +35,16 @@ public final class OnsetStream {
     private var fluxHistory: [[Float]] = Array(repeating: [], count: bandCount)
     private var centroidHistory: [[Float]] = Array(repeating: [], count: bandCount)
     private var lastOnsetTime = [Double](repeating: -1, count: bandCount)
+    private var lastEmitTime = 0.0 // any band — drives starvation relax
     private var frameIndex = 0
+
+    // Energy envelopes for the sustained-texture fallback: smooth swells
+    // have ~zero spectral flux, so flux thresholds can never catch them.
+    private var fastEnv = [Float](repeating: 0, count: bandCount)
+    private var slowEnv = [Float](repeating: 0, count: bandCount)
+    private var envAbove = [Bool](repeating: false, count: bandCount)
+    private let fallbackRefractory = 0.6
+    private let starvationSeconds = 3.0
 
     /// Sensitivity: onset requires flux > mean + k·std of the rolling window.
     public var thresholdK: Float = 1.6
@@ -95,6 +104,9 @@ public final class OnsetStream {
                 centroidHistory[band].removeFirst()
             }
 
+            fastEnv[band] += 0.3 * (total - fastEnv[band])
+            slowEnv[band] += 0.02 * (total - slowEnv[band])
+
             checkForOnset(band: band, into: &onsets)
         }
 
@@ -111,28 +123,49 @@ public final class OnsetStream {
         let candidateIdx = n - 1 - lookAhead
         let candidate = history[candidateIdx]
 
+        // Starvation relax: sustained textures (ambient/orchestral) produce
+        // little spectral flux, which starves the chart. After 2s without
+        // any onset, progressively loosen the gate (down to 35%) so gentle
+        // swells still become notes. Flux ≈ 0 in true silence, so the floor
+        // keeps silent passages empty.
+        let now = Double(frameIndex) * hopDuration
+        let starvation = max(0, now - lastEmitTime - 2.0)
+        let relax = Float(max(0.35, 1.0 - 0.25 * starvation))
+
         var mean: Float = 0
         var std: Float = 0
         vDSP_normalize(history, 1, nil, 1, &mean, &std, vDSP_Length(n))
-        guard candidate > mean + thresholdK * std, candidate > 0.5 else { return }
-
-        for d in 1...lookAhead where history[candidateIdx - d] > candidate || history[candidateIdx + d] >= candidate {
-            return
-        }
 
         // Frame index of the candidate on the absolute timeline. The STFT
         // window is centered fftSize/2 into the frame's samples.
-        let absoluteFrame = frameIndex - lookAhead
-        let time = Double(absoluteFrame) * hopDuration
+        let time = Double(frameIndex - lookAhead) * hopDuration
             + Double(STFT.fftSize / 2) / sampleRate
 
-        guard time - lastOnsetTime[band] >= refractorySeconds else { return }
+        // Envelope-crossing fallback for sustained textures: a swell crest
+        // (fast envelope crossing above slow) counts as an onset once the
+        // flux detector has been starved. Silence has zero envelopes and
+        // can never cross.
+        let crossedUp = fastEnv[band] > slowEnv[band] * 1.1 && fastEnv[band] > 1e-3
+        let fallbackFired = crossedUp && !envAbove[band]
+            && now - lastEmitTime > starvationSeconds
+            && time - lastOnsetTime[band] >= fallbackRefractory
+        envAbove[band] = crossedUp
+
+        let fluxFired = candidate > mean + thresholdK * relax * std
+            && candidate > 0.5 * relax
+            && (1...lookAhead).allSatisfy {
+                history[candidateIdx - $0] <= candidate && history[candidateIdx + $0] < candidate
+            }
+            && time - lastOnsetTime[band] >= refractorySeconds
+
+        guard fluxFired || fallbackFired else { return }
         lastOnsetTime[band] = time
+        lastEmitTime = time
 
         onsets.append(DetectedOnset(
             time: time,
             band: band,
-            energy: candidate,
+            energy: max(candidate, 0.5),
             centroid: centroidHistory[band][candidateIdx]
         ))
     }
