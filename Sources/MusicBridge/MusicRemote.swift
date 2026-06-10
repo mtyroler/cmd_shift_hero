@@ -23,17 +23,53 @@ public final class MusicRemote {
 
     public init() {}
 
-    /// Starts playing the library track with the given AppleScript persistent
-    /// ID (uppercase hex). Works for subscription/cloud tracks in the library.
-    public func play(persistentIDHex: String) throws {
+    /// Starts playing a library track. Tries the AppleScript persistent ID
+    /// (uppercase hex) with retries — Music's scripting engine can answer
+    /// -1700 while the app is still warming up — then falls back to a
+    /// name + artist match.
+    public func play(persistentIDHex: String, title: String, artist: String) async throws {
         // IDs are hex we generate ourselves, but never interpolate untrusted
         // strings into AppleScript.
         precondition(persistentIDHex.allSatisfy(\.isHexDigit))
-        try run("""
+        let byID = """
         tell application "Music"
             play (first track of library playlist 1 whose persistent ID is "\(persistentIDHex)")
         end tell
-        """)
+        """
+
+        var lastError: Error?
+        for attempt in 1...3 {
+            do {
+                try run(byID)
+                return
+            } catch {
+                lastError = error
+                Self.log.warning("play by ID attempt \(attempt) failed: \(error.localizedDescription)")
+                try? await Task.sleep(for: .milliseconds(700))
+            }
+        }
+
+        // Fallback: match by metadata (handles rare ITLib/AppleScript ID
+        // disagreements).
+        let byName = """
+        tell application "Music"
+            play (first track of library playlist 1 whose name is \(quoted(title)) and artist is \(quoted(artist)))
+        end tell
+        """
+        do {
+            try run(byName)
+            Self.log.info("played via name+artist fallback: \(title)")
+        } catch {
+            throw MusicRemoteError.scriptError(
+                "couldn't start \"\(title)\" (\(persistentIDHex)): \(lastError?.localizedDescription ?? error.localizedDescription)"
+            )
+        }
+    }
+
+    private func quoted(_ s: String) -> String {
+        "\"" + s
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
     /// Launches Music.app without bringing it to the front; returns once it

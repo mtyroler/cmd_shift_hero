@@ -181,7 +181,8 @@ final class AppState {
                 )
 
                 try tap.startCapture(into: [player.ring, analysisRing])
-                try musicRemote.play(persistentIDHex: track.persistentIDHex)
+                try await musicRemote.play(persistentIDHex: track.persistentIDHex,
+                                           title: track.title, artist: track.artist)
                 try player.start()
                 analyzer.start()
 
@@ -327,14 +328,16 @@ final class AppState {
         screen = .menu
     }
 
-    /// M4 verification path: play the track in Music.app (audible for now —
-    /// the tap pipeline mutes it from M5 on).
+    /// Debug path: play the track audibly in Music.app (no tap).
     func previewInMusic(_ track: LibraryTrack) {
-        do {
-            try musicRemote.play(persistentIDHex: track.persistentIDHex)
-            previewTrack = track
-        } catch {
-            libraryError = error.localizedDescription
+        Task {
+            do {
+                try await musicRemote.play(persistentIDHex: track.persistentIDHex,
+                                           title: track.title, artist: track.artist)
+                previewTrack = track
+            } catch {
+                libraryError = error.localizedDescription
+            }
         }
     }
 
