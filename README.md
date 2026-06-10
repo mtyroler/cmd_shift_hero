@@ -1,49 +1,63 @@
 # Command Shift Hero
 
-Guitar Hero, but the instrument is your Mac keyboard. ⌘⇧🎸
+> Guitar Hero, but the instrument is your keyboard. ⌘⇧🎸
 
-Pick a song from your Apple Music library. Notes fall toward an on-screen keyboard —
-any letter key can be a target — and you play the song by typing in rhythm.
-**Shift** is star power. **Cmd+Shift** is the combo finisher.
+Pick any song from your Apple Music library. Notes fall toward a glowing on-screen keyboard. You play the song by typing in rhythm — any letter key is fair game.
 
-## How it works (the interesting part)
+**Shift** activates star power. **Cmd+Shift** triggers the finisher.
 
-Apple Music audio is DRM-protected and MusicKit never exposes raw samples, so this
-app takes a different road:
+---
 
-1. You pick a track from your Music library (enumerated via `iTunesLibrary.framework`).
-2. The app tells **Music.app** to play it (`NSAppleScript`, play by persistent ID).
-3. A **Core Audio process tap** (`AudioHardwareCreateProcessTap`, macOS 14.4+)
-   captures Music.app's decoded audio output — and *mutes* it (`.mutedWhenTapped`).
-4. The captured audio is analyzed in real time (vDSP spectral-flux onset detection,
-   frequency bands mapped to keyboard rows) to generate the note chart.
-5. The same audio is replayed through the app's own output **~2.5 s delayed**.
-   That delay is the note lookahead: the game knows the notes before you hear them.
+## The trick
 
-First play of a song generates the chart live; the analysis is cached, so replays
-get a refined, complete chart from beat zero.
+Apple Music audio is DRM-protected and no official API exposes raw samples. So this app does something sneaky:
+
+```
+1. Tell Music.app to play your track via AppleScript
+2. Tap the process audio with a Core Audio process tap  ← the sneaky part
+3. Mute Music.app's real output (the tap owns it now)
+4. Analyze the captured PCM in real time: FFT → spectral flux → note chart
+5. Replay the same audio through the game, delayed ~2.5 s
+   └─ that delay is the lookahead — notes appear before you hear them
+```
+
+First play generates the chart live. The analysis is cached, so every replay gets a complete, refined chart from beat zero.
+
+---
 
 ## Building
 
-Requires macOS 15+ (developed on 26.x), Apple Silicon, and Swift 6.2
-(Command Line Tools are enough — no Xcode project, no paid developer account).
+Requires macOS 15+, Apple Silicon, and Swift 6.2. No Xcode, no paid developer account — Command Line Tools are enough.
 
 ```sh
-swift build && swift test   # fast inner loop
-Scripts/run.sh              # assemble the .app bundle, ad-hoc sign, and launch
+# Fast inner loop (build + test)
+swift build && swift test
+
+# Assemble the .app bundle, ad-hoc sign, and launch
+Scripts/run.sh
 ```
 
-TCC permissions (audio capture, Apple Events, media library) require launching the
-real bundle via `Scripts/run.sh`, not the bare binary. If permission prompts get
-wedged after rebuilds, run `Scripts/reset-tcc.sh`.
+TCC permissions (audio capture, Apple Events, media library) only kick in when launching the real bundle via `Scripts/run.sh`, not the bare binary. If permission prompts get stuck after a rebuild, `Scripts/reset-tcc.sh` clears them.
 
-## Layout
+---
 
-| Module | Purpose |
-|---|---|
-| `CommandShiftHero` | SwiftUI app shell: menu, library browser, game container |
-| `GameCore` | Chart/notes, key mapping, master clock, judging, session state |
-| `GameScene` | SpriteKit rendering: note highway, on-screen keyboard, effects |
-| `AudioAnalysis` | STFT + spectral flux onset detection, chart generation, cache |
-| `MusicBridge` | ITLibrary enumeration + AppleScript playback control |
-| `TapCapture` | Core Audio process tap, lock-free ring buffer, delayed playback |
+## Architecture
+
+Six modules, clean dependency flow:
+
+```
+GameCore          pure logic — notes, judging, key mapping, scoring
+AudioAnalysis  →  STFT + spectral-flux onset detection, chart gen, cache
+GameScene      →  SpriteKit: note highway, keyboard, HUD, effects
+MusicBridge       iTunesLibrary enumeration + AppleScript playback control
+TapCapture     →  Core Audio process tap, lock-free ring buffer, delayed playback
+CommandShiftHero  SwiftUI shell — ties everything together
+```
+
+The note highway position of every note is derived entirely from one clock (`audibleSongTime`). No accumulated deltas, no drift.
+
+---
+
+## How it actually feels
+
+Your whole keyboard lights up. Low frequencies map to the bottom rows, highs to the top. A driving kick pattern becomes a floor-level stomp; a bright synth lead runs across the number row. Every song plays differently.
