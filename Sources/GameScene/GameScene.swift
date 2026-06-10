@@ -25,6 +25,7 @@ public final class GameScene: SKScene {
     private var clock: GameClock?
     private var session: GameSession?
     private var songInfo: SongHUDInfo?
+    private var energy: EnergyEnvelope?
 
     /// Seconds a note is on screen before its hit moment. Must stay under
     /// the live-detection lookahead (~2.2 s of the 2.5 s tap delay).
@@ -51,10 +52,12 @@ public final class GameScene: SKScene {
     private var lastMultiplier = 1
     private let starBarWidth: CGFloat = 220
 
-    public func attach(clock: GameClock, session: GameSession, song: SongHUDInfo? = nil) {
+    public func attach(clock: GameClock, session: GameSession,
+                       song: SongHUDInfo? = nil, energy: EnergyEnvelope? = nil) {
         self.clock = clock
         self.session = session
         self.songInfo = song
+        self.energy = energy
         spawnIndex = 0
         activeNotes.removeAll()
         if songLabel != nil { applySongInfo() }
@@ -125,7 +128,8 @@ public final class GameScene: SKScene {
         }
 
         backdrop?.update(time: currentTime, combo: session.state.combo,
-                         starActive: session.starPowerActive)
+                         starActive: session.starPowerActive,
+                         energy: energy?.level(at: t) ?? 0)
         updateHUD(at: t)
     }
 

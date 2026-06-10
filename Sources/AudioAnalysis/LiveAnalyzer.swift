@@ -37,11 +37,14 @@ public final class LiveAnalyzer: @unchecked Sendable {
     /// - Parameters:
     ///   - emitNotes: false when a cached chart is already loaded (analysis
     ///     then only refines the cache).
+    ///   - energy: low-band energy sink for music-reactive visuals, filled
+    ///     on the capture timeline (same clock the notes use).
     ///   - onAudioStart: called once (main thread) with the capture-timeline
     ///     time of the first audible sample.
     ///   - onNote: live notes on the capture timeline (main thread).
     public init(ring: AudioRingBuffer, sampleRate: Double, channels: Int,
                 difficulty: Difficulty, emitNotes: Bool,
+                energy: EnergyEnvelope? = nil,
                 onAudioStart: @escaping @MainActor @Sendable (Double) -> Void,
                 onNote: @escaping @MainActor @Sendable (Note) -> Void) {
         self.ring = ring
@@ -49,6 +52,9 @@ public final class LiveAnalyzer: @unchecked Sendable {
         self.channels = channels
         self.stream = OnsetStream(sampleRate: sampleRate)
         self.stream.thresholdK = difficulty.thresholdK
+        if let energy {
+            self.stream.onEnergy = { energy.append(time: $0, value: $1) }
+        }
         self.generator = ChartGenerator(difficulty: difficulty)
         self.emitNotes = emitNotes
         self.onAudioStart = onAudioStart

@@ -42,7 +42,8 @@ struct GameContainerView: View {
         }
         .onAppear {
             if let clock = appState.player, let session = appState.session {
-                scene.attach(clock: clock, session: session, song: appState.songHUDInfo)
+                scene.attach(clock: clock, session: session,
+                             song: appState.songHUDInfo, energy: appState.energyEnvelope)
             }
             installKeyMonitor()
         }

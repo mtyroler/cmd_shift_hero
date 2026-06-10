@@ -50,6 +50,10 @@ public final class OnsetStream {
     public var thresholdK: Float = 1.6
     /// Minimum spacing between onsets in the same band.
     public var refractorySeconds = 0.10
+    /// Music-reactive visuals tap: called every `energyStride` hops (~23 ms)
+    /// with (time, smoothed low-band energy) on the producer's thread.
+    public var onEnergy: ((Double, Float) -> Void)?
+    private let energyStride = 4
 
     public init(sampleRate: Double) {
         self.sampleRate = sampleRate
@@ -111,6 +115,11 @@ public final class OnsetStream {
         }
 
         prevLogMags = logMags
+        if frameIndex % energyStride == 0, let onEnergy {
+            let time = Double(frameIndex) * hopDuration
+                + Double(STFT.fftSize / 2) / sampleRate
+            onEnergy(time, fastEnv[0])
+        }
         frameIndex += 1
     }
 

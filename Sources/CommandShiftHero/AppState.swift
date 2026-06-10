@@ -37,6 +37,8 @@ final class AppState {
     private(set) var player: DelayedPlayer?
     private(set) var session: GameSession?
     private(set) var finalScore: ScoreState?
+    /// Low-band energy of the current song, sampled by the backdrop.
+    private(set) var energyEnvelope: EnergyEnvelope?
 
     /// Music-tap mode (M5+).
     private var tap: ProcessTapController?
@@ -68,12 +70,14 @@ final class AppState {
         isAnalyzing = true
         lastError = nil
         let difficulty = self.difficulty
+        let energy = EnergyEnvelope()
 
         Task {
             do {
                 let chart = try await Task.detached(priority: .userInitiated) {
-                    try OfflineAnalyzer.analyze(url: url, difficulty: difficulty)
+                    try OfflineAnalyzer.analyze(url: url, difficulty: difficulty, energy: energy)
                 }.value
+                self.energyEnvelope = energy
                 self.currentChart = chart
                 self.currentURL = url
                 try self.startPlayback(chart: chart, url: url)
@@ -160,6 +164,7 @@ final class AppState {
                 let cached = ChartCache.load(trackID: track.persistentIDHex)
                 let session = GameSession(chart: Chart(notes: []))
                 let difficulty = self.difficulty
+                let energy = EnergyEnvelope()
 
                 let analyzer = LiveAnalyzer(
                     ring: analysisRing,
@@ -167,6 +172,7 @@ final class AppState {
                     channels: format.channels,
                     difficulty: difficulty,
                     emitNotes: cached == nil,
+                    energy: energy,
                     onAudioStart: { [weak self] t0 in
                         guard let self else { return }
                         self.audioStartOffset = t0
@@ -194,6 +200,7 @@ final class AppState {
                 self.analysisRing = analysisRing
                 self.currentTrack = track
                 self.session = session
+                self.energyEnvelope = energy
                 self.cachedAnalysis = cached
                 self.audioStartOffset = nil
                 self.liveAnalyzer = analyzer
@@ -268,6 +275,7 @@ final class AppState {
         }
         liveAnalyzer?.stop()
         liveAnalyzer = nil
+        if mode == .musicTap { energyEnvelope = nil } // local-file envelope survives restarts
         cachedAnalysis = nil
         audioStartOffset = nil
         player?.stop()

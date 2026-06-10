@@ -9,10 +9,12 @@ final class BackdropNode: SKSpriteNode {
     private let beatUniform = SKUniform(name: "u_beat", float: 0)
     private let starUniform = SKUniform(name: "u_star", float: 0)
     private let comboUniform = SKUniform(name: "u_combo", float: 0)
+    private let energyUniform = SKUniform(name: "u_energy", float: 0)
     private let aspectUniform = SKUniform(name: "u_aspect", float: 1)
 
     private var beat: Float = 0
     private var star: Float = 0
+    private var energyLevel: Float = 0
     private var lastUpdate: TimeInterval?
 
     init(size: CGSize) {
@@ -20,7 +22,7 @@ final class BackdropNode: SKSpriteNode {
         super.init(texture: Self.whiteTexture, color: .white, size: size)
         anchorPoint = .zero
         let shader = SKShader(source: Self.source)
-        shader.uniforms = [beatUniform, starUniform, comboUniform, aspectUniform]
+        shader.uniforms = [beatUniform, starUniform, comboUniform, energyUniform, aspectUniform]
         self.shader = shader
         aspectUniform.floatValue = Float(size.width / max(size.height, 1))
     }
@@ -33,14 +35,19 @@ final class BackdropNode: SKSpriteNode {
         beat = max(beat, strength)
     }
 
-    /// Per-frame uniform feed. `time` is the scene's update timestamp.
-    func update(time: TimeInterval, combo: Int, starActive: Bool) {
+    /// Per-frame uniform feed. `time` is the scene's update timestamp;
+    /// `energy` is the audible song's low-band level (0…1).
+    func update(time: TimeInterval, combo: Int, starActive: Bool, energy: Float) {
         let dt = lastUpdate.map { Float(max(0, time - $0)) } ?? 0
         lastUpdate = time
         beat = max(0, beat - dt * 3.0)
         star += ((starActive ? 1 : 0) - star) * min(1, dt * 4)
+        // VU-style: snap up with the kick, fall back slower.
+        let rate: Float = energy > energyLevel ? 18 : 6
+        energyLevel += (energy - energyLevel) * min(1, dt * rate)
         beatUniform.floatValue = beat
         starUniform.floatValue = star
+        energyUniform.floatValue = energyLevel
         comboUniform.floatValue = min(1, Float(combo) / 30)
     }
 
@@ -89,7 +96,7 @@ final class BackdropNode: SKSpriteNode {
             float cols = abs(fract(xw * 0.8) - 0.5);
             float colLine = 1.0 - smoothstep(0.02, 0.16, cols);
             float fade = smoothstep(0.0, 0.35, d);
-            float glow = (rowLine + colLine) * fade * (0.45 + 0.45 * u_beat + 0.25 * u_combo);
+            float glow = (rowLine + colLine) * fade * (0.35 + 0.45 * u_beat + 0.25 * u_combo + 0.35 * u_energy);
             col = mix(skyBottom * 0.4, skyTop, d * 0.8);
             col += gridCol * glow;
         }
@@ -97,14 +104,14 @@ final class BackdropNode: SKSpriteNode {
         // Striped sun sitting on the horizon (occluded by the floor).
         vec2 sp = vec2((uv.x - 0.5) * u_aspect, uv.y - horizon - 0.02);
         float dist = length(sp);
-        float r = 0.13 * (1.0 + 0.05 * u_beat);
+        float r = 0.13 * (1.0 + 0.05 * u_beat + 0.08 * u_energy);
         if (uv.y > horizon) {
             float body = 1.0 - smoothstep(r - 0.006, r, dist);
             float stripes = smoothstep(-0.2, 0.6, sin((uv.y - horizon) * 160.0) + (uv.y - horizon) * 14.0);
             vec3 sunCol = mix(sunBottom, sunTop, clamp((sp.y + r) / (2.0 * r), 0.0, 1.0));
             col = mix(col, sunCol, body * stripes);
         }
-        col += sunTop * exp(-dist * 7.0) * (0.16 + 0.10 * u_beat);
+        col += sunTop * exp(-dist * 7.0) * (0.12 + 0.10 * u_beat + 0.20 * u_energy);
 
         gl_FragColor = vec4(col, 1.0);
     }

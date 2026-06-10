@@ -8,13 +8,19 @@ import os
 public enum OfflineAnalyzer {
     private static let log = Logger(subsystem: "com.maxtyroler.csh", category: "OfflineAnalyzer")
 
-    public static func analyze(url: URL, difficulty: Difficulty) throws -> Chart {
+    /// - Parameter energy: optional low-band energy sink for music-reactive
+    ///   visuals, filled for the whole file on the song timeline.
+    public static func analyze(url: URL, difficulty: Difficulty,
+                               energy: EnergyEnvelope? = nil) throws -> Chart {
         let file = try AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: false)
         let sampleRate = file.processingFormat.sampleRate
         let channels = Int(file.processingFormat.channelCount)
 
         let stream = OnsetStream(sampleRate: sampleRate)
         stream.thresholdK = difficulty.thresholdK
+        if let energy {
+            stream.onEnergy = { energy.append(time: $0, value: $1) }
+        }
         let generator = ChartGenerator(difficulty: difficulty)
         var notes: [Note] = []
 
