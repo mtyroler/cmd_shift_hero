@@ -56,12 +56,16 @@ public enum Difficulty: String, CaseIterable, Codable, Sendable {
 public final class ChartGenerator {
     private let difficulty: Difficulty
 
+    private enum Hand { case left, right }
+
     private var lastNoteTime = -Double.infinity
     private var lastTimePerRow: [KeyRow: Double] = [:]
     private var lastColumnPerRow: [KeyRow: Int] = [:]
     private var lastTimePerKey: [KeyPosition: Double] = [:]
     private var recentNoteTimes: [Double] = []   // sliding 1s window for density cap
     private var chordWindow: [(time: Double, count: Int)] = []
+    private var recentHands: [Hand] = []         // trailing emitted notes, max 3
+    private var easyNextHand: Hand = .left       // easy strictly alternates hands
 
     // Playability constants
     private let minRowGap = 0.110
@@ -80,6 +84,17 @@ public final class ChartGenerator {
         case 1: .home
         default: .top
         }
+    }
+
+    /// Which hand a key naturally belongs to, by row midpoint.
+    private static func hand(of column: Int, in row: KeyRow) -> Hand {
+        column <= (row.keyCount - 1) / 2 ? .left : .right
+    }
+
+    /// Easy mode plays only ASDF (left) and HJKL (right) — G stays free so
+    /// the two hand zones never touch.
+    private static func easyColumns(for hand: Hand) -> ClosedRange<Int> {
+        hand == .left ? 0...3 : 5...8
     }
 
     /// Returns a playable note for this onset, or nil if constraints drop it.
@@ -105,18 +120,39 @@ public final class ChartGenerator {
         // Per-row spacing.
         if let last = lastTimePerRow[row], t - last < minRowGap { return nil }
 
-        // Column from the spectral centroid, clamped to a reachable jump.
         let keyCount = row.keyCount
-        var column = Int((onset.centroid * Float(keyCount - 1)).rounded())
-        if let prev = lastColumnPerRow[row] {
-            column = min(max(column, prev - maxColumnJump), prev + maxColumnJump)
+        var column: Int
+        var allowedColumns = 0...(keyCount - 1)
+
+        if difficulty == .easy {
+            // Strict hand alternation: each note lands in the zone of
+            // whichever hand is up next; the centroid picks the finger.
+            let zone = Self.easyColumns(for: easyNextHand)
+            column = zone.lowerBound + Int((onset.centroid * Float(zone.count - 1)).rounded())
+            allowedColumns = zone
+        } else {
+            // Column from the spectral centroid, clamped to a reachable jump.
+            column = Int((onset.centroid * Float(keyCount - 1)).rounded())
+            if let prev = lastColumnPerRow[row] {
+                column = min(max(column, prev - maxColumnJump), prev + maxColumnJump)
+            }
+            column = min(max(column, 0), keyCount - 1)
+
+            // Hand balance (normal only): after three notes in a row on one
+            // hand, mirror the next note across the row midpoint. Cross-hand
+            // jumps don't need the reach clamp — it's a fresh hand.
+            if difficulty == .normal,
+               recentHands.count >= 3,
+               recentHands.allSatisfy({ $0 == recentHands[0] }),
+               Self.hand(of: column, in: row) == recentHands[0] {
+                column = keyCount - 1 - column
+            }
         }
-        column = min(max(column, 0), keyCount - 1)
 
         // Per-key spacing: nudge sideways once, otherwise drop.
         var key = KeyPosition(row: row, column: column)
         if let last = lastTimePerKey[key], t - last < minKeyGap {
-            let alternatives = [column - 1, column + 1].filter { (0..<keyCount).contains($0) }
+            let alternatives = [column - 1, column + 1].filter { allowedColumns.contains($0) }
             guard let alt = alternatives.first(where: { c in
                 let k = KeyPosition(row: row, column: c)
                 return lastTimePerKey[k].map { t - $0 >= minKeyGap } ?? true
@@ -130,6 +166,9 @@ public final class ChartGenerator {
         lastTimePerKey[key] = t
         recentNoteTimes.append(t)
         chordWindow.append((t, 1))
+        easyNextHand = easyNextHand == .left ? .right : .left
+        recentHands.append(Self.hand(of: key.column, in: row))
+        if recentHands.count > 3 { recentHands.removeFirst() }
 
         return Note(time: t, key: key)
     }

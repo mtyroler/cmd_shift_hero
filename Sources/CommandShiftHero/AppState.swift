@@ -3,6 +3,7 @@ import AppKit
 import AudioAnalysis
 import Foundation
 import GameCore
+import GameScene
 import MusicBridge
 import Observation
 import TapCapture
@@ -49,6 +50,7 @@ final class AppState {
     /// Kept for instant restart without re-analysis.
     private var currentChart: Chart?
     private var currentURL: URL?
+    private var localFileDuration: Double?
 
     var calibrationOffset: Double {
         get { UserDefaults.standard.double(forKey: Self.calibrationKey) }
@@ -104,6 +106,7 @@ final class AppState {
 
     private func startPlayback(chart: Chart, url: URL) throws {
         let file = try AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: true)
+        localFileDuration = Double(file.length) / file.processingFormat.sampleRate
         let player = DelayedPlayer(
             sampleRate: file.processingFormat.sampleRate,
             channels: Int(file.processingFormat.channelCount),
@@ -217,6 +220,19 @@ final class AppState {
             try await Task.sleep(for: .milliseconds(250))
         }
         throw TapError.processNotRunning("com.apple.Music")
+    }
+
+    /// Metadata for the in-game HUD: title, artist, duration, artwork.
+    var songHUDInfo: SongHUDInfo? {
+        switch mode {
+        case .musicTap:
+            guard let track = currentTrack else { return nil }
+            return SongHUDInfo(title: track.title, artist: track.artist,
+                               duration: track.duration, artwork: artwork(for: track))
+        case .localFile:
+            return SongHUDInfo(title: "DEMO TRACK", artist: "built-in",
+                               duration: localFileDuration, artwork: nil)
+        }
     }
 
     /// Song-end check, polled by the game container.

@@ -109,6 +109,13 @@ public final class GameSession {
         return (judgment, index)
     }
 
+    /// Seconds of star power left at song time `t`, or nil when inactive.
+    /// Lets the HUD drain the meter as a countdown instead of snapping empty.
+    public func starPowerRemaining(at t: Double) -> Double? {
+        guard starPowerActive, let end = starPowerEndTime else { return nil }
+        return max(0, end - t)
+    }
+
     /// Shift pressed: activate star power if the meter is full.
     @discardableResult
     public func tryActivateStarPower(at t: Double) -> Bool {

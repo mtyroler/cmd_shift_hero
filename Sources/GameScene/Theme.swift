@@ -9,6 +9,8 @@ public enum Theme {
     public static let keyFill = NSColor(red: 0.07, green: 0.08, blue: 0.18, alpha: 0.9)
     public static let keyText = NSColor(red: 0.75, green: 0.95, blue: 1.0, alpha: 1)
     public static let hitFlash = NSColor(red: 1.0, green: 0.35, blue: 0.85, alpha: 1)
+    public static let starGold = NSColor(red: 1.0, green: 0.82, blue: 0.25, alpha: 1)
+    public static let missRed = NSColor(red: 1.0, green: 0.22, blue: 0.30, alpha: 1)
 
     /// Per-row note colors: highs hot pink, mids cyan, lows violet.
     public static func rowColor(_ row: KeyRow) -> NSColor {
